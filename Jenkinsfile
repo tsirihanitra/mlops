@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.10-slim'
-            args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any
 
     environment {
         HARBOR_URL     = '192.168.43.53'
@@ -26,8 +21,8 @@ pipeline {
         stage('Test') {
             steps {
                 sh '''
-                    pip install -r requirements.txt
-                    python tests/test_predict.py
+                    python3 -m pip install --break-system-packages -r requirements.txt
+                    python3 tests/test_predict.py
                 '''
             }
         }
