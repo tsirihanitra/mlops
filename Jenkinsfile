@@ -1,5 +1,10 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'python:3.10-slim'
+            args '-v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
 
     environment {
         HARBOR_URL     = '192.168.43.53'
@@ -30,9 +35,9 @@ pipeline {
         stage('Docker Build') {
             steps {
                 sh """
-                    docker build -t 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} .
-                    docker tag 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} \
-                               192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                    docker build -t ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} .
+                    docker tag ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} \
+                               ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
                 """
             }
         }
@@ -45,10 +50,10 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh """
-                        docker login 192.168.43.55 -u \$USER -p \$PASS
-                        docker push 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                        docker push 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
-                        docker logout 192.168.43.55
+                        docker login ${HARBOR_URL} -u \$USER -p \$PASS
+                        docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                        docker logout ${HARBOR_URL}
                     """
                 }
             }
@@ -57,8 +62,8 @@ pipeline {
         stage('Clean up') {
             steps {
                 sh """
-                    docker rmi 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
-                    docker rmi 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:latest || true
+                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
+                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest || true
                 """
             }
         }
@@ -66,7 +71,7 @@ pipeline {
 
     post {
         success {
-            echo "Image publiee : 192.168.43.55/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "Image publiee : ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
             echo "Pipeline echoue ! Verifiez les logs."
