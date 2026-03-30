@@ -18,14 +18,16 @@ pipeline {
             }
         }
 
-        stage('Test') {
-            steps {
-                sh '''
-                    python3 -m pip install --break-system-packages -r requirements.txt
-                    python3 tests/test_predict.py
-                '''
-            }
-        }
+      stage('Test') {
+    steps {
+        sh '''
+            apt-get update -y
+            apt-get install -y python3 python3-pip
+            python3 -m pip install --break-system-packages -r requirements.txt
+            python3 tests/test_predict.py
+        '''
+    }
+}
 
         stage('Docker Build') {
             steps {
