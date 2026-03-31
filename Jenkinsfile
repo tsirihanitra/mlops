@@ -34,33 +34,35 @@ pipeline {
             }
         }
 
-        // ✅ LOGIN AVANT BUILD (CORRECTION PRINCIPALE)
+        // ✅ LOGIN AVANT BUILD
         stage('Docker Login') {
             steps {
                 withCredentials([usernamePassword(
-                    credentialsId: 'harbor-credentials',
+                    credentialsId: 'harbor-credentials',  // ton robot account
                     usernameVariable: 'USER',
                     passwordVariable: 'PASS'
                 )]) {
-                    sh 'docker login ${HARBOR_URL} -u $USER -p $PASS'
+                    sh '''
+                    echo "$PASS" | docker login ${HARBOR_URL} -u "$USER" --password-stdin
+                    '''
                 }
             }
         }
 
-        stage('Docker Build') {
+        stage('Docker Build & Push') {
             steps {
                 sh """
+                    # Build de l'image
                     docker build -t ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} .
+
+                    # Tag latest
                     docker tag ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} \
                                ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
-                """
-            }
-        }
 
-        stage('Push to Harbor') {
-            steps {
-                sh """
+                    # Push image versionnée
                     docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+
+                    # Push latest
                     docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
                 """
             }
@@ -78,10 +80,10 @@ pipeline {
 
     post {
         success {
-            echo "Image publiee : ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "✅ Image publiée : ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo "Pipeline echoue ! Verifiez les logs."
+            echo "❌ Pipeline échoué ! Vérifiez les logs."
         }
         always {
             cleanWs()
