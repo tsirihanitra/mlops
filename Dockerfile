@@ -1,4 +1,4 @@
-FROM python:3.10-slim
+FROM 192.168.43.53/dockerhub-proxy/python:3.10-slim
 
 WORKDIR /app
 
