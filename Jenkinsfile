@@ -34,6 +34,19 @@ pipeline {
             }
         }
 
+        // ✅ LOGIN AVANT BUILD (CORRECTION PRINCIPALE)
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'harbor-credentials',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
+                    sh 'docker login ${HARBOR_URL} -u $USER -p $PASS'
+                }
+            }
+        }
+
         stage('Docker Build') {
             steps {
                 sh """
@@ -46,18 +59,10 @@ pipeline {
 
         stage('Push to Harbor') {
             steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'harbor-credentials',
-                    usernameVariable: 'USER',
-                    passwordVariable: 'PASS'
-                )]) {
-                    sh """
-                        docker login ${HARBOR_URL} -u \$USER -p \$PASS
-                        docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                        docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
-                        docker logout ${HARBOR_URL}
-                    """
-                }
+                sh """
+                    docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+                    docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                """
             }
         }
 
