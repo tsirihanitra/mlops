@@ -1,11 +1,11 @@
 pipeline {
     agent any
-    environment {
-        HARBOR_URL     = '192.168.43.53'
-        HARBOR_PROJECT = 'mlops'
-        IMAGE_NAME     = 'wine-quality'
-        IMAGE_TAG      = "${env.BUILD_NUMBER}"
-    }
+   environment {
+    HARBOR_URL     = '192.168.43.53'   // ✅ port 80 par défaut
+    HARBOR_PROJECT = 'mlops'
+    IMAGE_NAME     = 'wine-quality'
+    IMAGE_TAG      = "${env.BUILD_NUMBER}"
+}
     stages {
         stage('Checkout') {
             steps {
@@ -29,23 +29,20 @@ pipeline {
             }
         }
 
-        stage('Docker Login') {
-            steps {
-                withCredentials([usernamePassword(
-                    credentialsId: 'harbor-credentials',
-                    usernameVariable: 'HARBOR_USER',   // ✅ plus USER
-                    passwordVariable: 'HARBOR_PASS'    // ✅ plus PASS
-                )]) {
-                    sh '''
-                        docker logout ${HARBOR_URL} || true
-                        echo "${HARBOR_PASS}" | docker login ${HARBOR_URL} \
-                            -u "${HARBOR_USER}" \
-                            --password-stdin
-                    '''
-                }
-            }
+       stage('Docker Login') {
+    steps {
+        withCredentials([usernamePassword(
+            credentialsId: 'harbor-credentials',
+            usernameVariable: 'HARBOR_USER',
+            passwordVariable: 'HARBOR_PASS'
+        )]) {
+            sh '''
+                echo "${HARBOR_PASS}" | docker login ${HARBOR_URL} \
+                    -u "${HARBOR_USER}" --password-stdin
+            '''
         }
-
+    }
+}
         stage('Docker Build & Push') {
             steps {
                 sh """
