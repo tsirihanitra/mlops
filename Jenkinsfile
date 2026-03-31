@@ -2,10 +2,10 @@ pipeline {
     agent any
 
     environment {
-        HARBOR_URL     = '192.168.43.53'
-        HARBOR_PROJECT = 'mlops'
-        IMAGE_NAME     = 'wine-quality'
-        IMAGE_TAG      = "${env.BUILD_NUMBER}"
+        HARBOR_URL     = '192.168.43.53'       // Ton Harbor
+        HARBOR_PROJECT = 'mlops'               // Projet Harbor
+        IMAGE_NAME     = 'wine-quality'        // Nom image
+        IMAGE_TAG      = "${env.BUILD_NUMBER}" // Tag de build
     }
 
     stages {
@@ -34,7 +34,6 @@ pipeline {
             }
         }
 
-        // ✅ LOGIN AVANT BUILD
         stage('Docker Login') {
             steps {
                 withCredentials([usernamePassword(
@@ -43,7 +42,11 @@ pipeline {
                     passwordVariable: 'PASS'
                 )]) {
                     sh '''
-                    echo "$PASS" | docker login ${HARBOR_URL} -u "$USER" --password-stdin
+                    # Logout ancien login pour éviter conflit
+                    docker logout ${HARBOR_URL} || true
+
+                    # Login sécurisé avec robot account
+                    echo "$PASS" | docker login https://${HARBOR_URL} -u "$USER" --password-stdin
                     '''
                 }
             }
@@ -52,7 +55,7 @@ pipeline {
         stage('Docker Build & Push') {
             steps {
                 sh """
-                    # Build de l'image
+                    # Build image Docker
                     docker build -t ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} .
 
                     # Tag latest
