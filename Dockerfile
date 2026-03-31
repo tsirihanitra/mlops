@@ -1,5 +1,4 @@
-FROM 192.168.43.53/dockerhub-proxy/python:3.10-slim
-
+FROM python:3.10-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
