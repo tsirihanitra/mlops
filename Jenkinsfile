@@ -1,12 +1,15 @@
 pipeline {
     agent any
-   environment {
-    HARBOR_URL     = '192.168.43.53'   // ✅ port 80 par défaut
-    HARBOR_PROJECT = 'mlops'
-    IMAGE_NAME     = 'wine-quality'
-    IMAGE_TAG      = "${env.BUILD_NUMBER}"
-}
+
+    environment {
+        HARBOR_URL     = '192.168.43.53'
+        HARBOR_PROJECT = 'mlops'
+        IMAGE_NAME     = 'wine-quality'
+        IMAGE_TAG      = "${env.BUILD_NUMBER}"
+    }
+
     stages {
+
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -18,7 +21,7 @@ pipeline {
         stage('Install dependencies') {
             steps {
                 sh '''
-                    python3 -m pip install --break-system-packages -r requirements.txt
+                python3 -m pip install --break-system-packages -r requirements.txt
                 '''
             }
         }
@@ -29,44 +32,60 @@ pipeline {
             }
         }
 
-       stage('Docker Login') {
-    steps {
-        withCredentials([usernamePassword(
-            credentialsId: 'harbor-credentials',
-            usernameVariable: 'HARBOR_USER',
-            passwordVariable: 'HARBOR_PASS'
-        )]) {
-            sh '''
-                echo "${HARBOR_PASS}" | docker login ${HARBOR_URL} \
-                    -u "${HARBOR_USER}" --password-stdin
-            '''
-        }
-    }
-}
-stage('Scan Trivy') {
-    steps {
-        sh """
-        docker run --rm \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          aquasec/trivy:latest image \
-          --exit-code 0 \
-          --severity LOW,MEDIUM,HIGH,CRITICAL \
-          --format table \
-          ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-        """
-    }
-}
-
-        stage('Docker Build & Push') {
+        stage('Docker Build') {
             steps {
                 sh """
-                    docker build -t ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} .
+                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                """
+            }
+        }
 
-                    docker tag ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} \
-                               ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+        stage('Scan Trivy') {
+            steps {
+                sh """
+                docker run --rm \
+                  -v /var/run/docker.sock:/var/run/docker.sock \
+                  aquasec/trivy:latest image \
+                  --exit-code 0 \
+                  --severity LOW,MEDIUM,HIGH,CRITICAL \
+                  --format table \
+                  ${IMAGE_NAME}:${IMAGE_TAG}
+                """
+            }
+        }
 
-                    docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                    docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+        stage('Docker Login') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'harbor-credentials',
+                    usernameVariable: 'HARBOR_USER',
+                    passwordVariable: 'HARBOR_PASS'
+                )]) {
+                    sh '''
+                    echo "${HARBOR_PASS}" | docker login ${HARBOR_URL} \
+                        -u "${HARBOR_USER}" --password-stdin
+                    '''
+                }
+            }
+        }
+
+        stage('Docker Tag') {
+            steps {
+                sh """
+                docker tag ${IMAGE_NAME}:${IMAGE_TAG} \
+                ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+
+                docker tag ${IMAGE_NAME}:${IMAGE_TAG} \
+                ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                """
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                sh """
+                docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
                 """
             }
         }
@@ -74,8 +93,9 @@ stage('Scan Trivy') {
         stage('Clean up') {
             steps {
                 sh """
-                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
-                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest || true
+                docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
+                docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
+                docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest || true
                 """
             }
         }
