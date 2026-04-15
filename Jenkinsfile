@@ -43,30 +43,19 @@ pipeline {
         }
     }
 }
-
-              stage('Scan Trivy') {
-            steps {
-                sh '''
-                    # Installer Trivy si pas encore present
-                    if ! command -v trivy &> /dev/null; then
-                        apt-get update -y
-                        apt-get install -y wget apt-transport-https gnupg
-                        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-                        echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" > /etc/apt/sources.list.d/trivy.list
-                        apt-get update -y
-                        apt-get install -y trivy
-                    fi
-                '''
-                sh """
-                    # Scanner l image Docker
-                    trivy image \
-                        --exit-code 0 \
-                        --severity LOW,MEDIUM,HIGH,CRITICAL \
-                        --format table \
-                        ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                """
-            }
-        }
+stage('Scan Trivy') {
+    steps {
+        sh """
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:latest image \
+          --exit-code 0 \
+          --severity LOW,MEDIUM,HIGH,CRITICAL \
+          --format table \
+          ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+        """
+    }
+}
 
         stage('Docker Build & Push') {
             steps {
