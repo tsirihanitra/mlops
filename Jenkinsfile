@@ -2,72 +2,107 @@ pipeline {
     agent any
 
     environment {
-        // Configuration Harbor
         HARBOR_URL     = '192.168.43.53'
         HARBOR_PROJECT = 'mlops'
         IMAGE_NAME     = 'wine-quality'
         IMAGE_TAG      = "${env.BUILD_NUMBER}"
-        
-        // Configuration Trivy
-        // On utilise des chemins relatifs au workspace pour la clarté Jenkins
-        REPORT_DIR     = "trivy-reports"
-        // Le cache est externe pour ne pas être effacé par cleanWs()
-        TRIVY_CACHE    = "/var/lib/jenkins/trivy_shared_cache"
     }
 
     stages {
-        stage('Initialisation') {
+
+        stage('Checkout') {
             steps {
-                sh "mkdir -p ${REPORT_DIR}"
-                sh "mkdir -p ${TRIVY_CACHE}"
-                
                 git branch: 'main',
                     credentialsId: 'github-credentials',
                     url: 'https://github.com/tsirihanitra/mlops.git'
             }
         }
 
-        stage('Installation & Tests') {
+        stage('Install dependencies') {
             steps {
-                sh 'python3 -m pip install --break-system-packages -r requirements.txt'
+                sh '''
+                    apt-get update -y
+                    apt-get install -y python3 python3-pip
+                    python3 -m pip install --break-system-packages -r requirements.txt
+                '''
+            }
+        }
+
+        stage('Test') {
+            steps {
                 sh 'python3 tests/test_predict.py'
             }
         }
 
         stage('Docker Build') {
             steps {
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+                sh """
+                    docker build -t ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} .
+                    docker tag ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} \
+                               ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                """
             }
         }
 
-
-
-        stage('Docker Login & Push') {
+        stage('Scan Trivy') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'harbor-credentials', usernameVariable: 'U', passwordVariable: 'P')]) {
+                sh '''
+                    # Installer Trivy si pas encore present
+                    if ! command -v trivy &> /dev/null; then
+                        apt-get update -y
+                        apt-get install -y wget apt-transport-https gnupg
+                        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+                        echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" > /etc/apt/sources.list.d/trivy.list
+                        apt-get update -y
+                        apt-get install -y trivy
+                    fi
+                '''
+                sh """
+                    # Scanner l image Docker
+                    trivy image \
+                        --exit-code 0 \
+                        --severity LOW,MEDIUM,HIGH,CRITICAL \
+                        --format table \
+                        ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+                """
+            }
+        }
+
+        stage('Push to Harbor') {
+            steps {
+                withCredentials([usernamePassword(
+                    credentialsId: 'harbor-credentials',
+                    usernameVariable: 'USER',
+                    passwordVariable: 'PASS'
+                )]) {
                     sh """
-                        echo "${P}" | docker login ${HARBOR_URL} -u "${U}" --password-stdin
-                        
-                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
-                        
+                        docker login ${HARBOR_URL} -u \$USER -p \$PASS
                         docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
                         docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                        docker logout ${HARBOR_URL}
                     """
                 }
+            }
+        }
+
+        stage('Clean up') {
+            steps {
+                sh """
+                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
+                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest || true
+                """
             }
         }
     }
 
     post {
         success {
-            echo "✅ Pipeline terminé avec succès. Image poussée sur Harbor."
+            echo "Image publiee et scannee : ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
-            echo "❌ Le pipeline a échoué. Vérifiez les logs ci-dessus."
+            echo "Pipeline echoue ! Verifiez les logs."
         }
         always {
-            // Nettoyage du workspace (mais garde le TRIVY_CACHE car il est hors workspace)
             cleanWs()
         }
     }
