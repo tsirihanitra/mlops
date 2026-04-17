@@ -40,24 +40,27 @@ pipeline {
             }
         }
 
-        stage('Scan Trivy') {
-            steps {
-                sh """
-                docker run --rm \
-                  -v /var/run/docker.sock:/var/run/docker.sock \
-                  -v \$(pwd):/report \
-                  aquasec/trivy:latest image \
-                  --severity LOW,MEDIUM,HIGH,CRITICAL \
-                  --format template \
-                  --template "@contrib/html.tpl" \
-                  -o /report/trivy-report.html \
-                  ${IMAGE_NAME}:${IMAGE_TAG}
-                """
-            }
-        }
+stage('Scan Trivy') {
+    steps {
+        sh """
+        echo "=== Starting Trivy Scan ==="
 
-     
-stage('Publish Trivy Report') {
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v \$(pwd):/workspace \
+          aquasec/trivy:latest image \
+          --severity LOW,MEDIUM,HIGH,CRITICAL \
+          --format template \
+          --template "@contrib/html.tpl" \
+          -o /workspace/trivy-report.html \
+          ${IMAGE_NAME}:${IMAGE_TAG}
+
+        echo "=== Check if report exists ==="
+        ls -l trivy-report.html || true
+        """
+    }
+}
+        stage('Publish Trivy Report') {
     steps {
         archiveArtifacts artifacts: 'trivy-report.html', fingerprint: true
     }
