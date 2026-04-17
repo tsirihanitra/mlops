@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  app:
+    build: .
+    image: wine-quality:latest
+    container_name: wine-prediction-app
+    volumes:
+      - ./data:/data
+    environment:
+      - DATA_PATH=/data/winequality-red.csv
+      - MODEL_PATH=src/model/random_forest_wine.pkl
+      - SCALER_PATH=src/model/scaler_wine.pkl
+    ports:
+      - "5000:5000"
+    restart: always
