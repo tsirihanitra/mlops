@@ -55,6 +55,30 @@ pipeline {
         """
     }
 }
+  stage('Scan Trivy') {
+    steps {
+        sh """
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v \$(pwd):/report \
+          aquasec/trivy:latest image \
+          --format template \
+          --template "@contrib/html.tpl" \
+          -o /report/trivy-report.html \
+          ${IMAGE_NAME}:${IMAGE_TAG}
+        """
+    }
+}
+
+stage('Publish Trivy Report') {
+    steps {
+        publishHTML([
+            reportDir: '.',
+            reportFiles: 'trivy-report.html',
+            reportName: 'Trivy Report'
+        ])
+    }
+}
 
         stage('Docker Login') {
             steps {
