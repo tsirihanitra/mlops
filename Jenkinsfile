@@ -38,47 +38,33 @@ pipeline {
             }
         }
 
-        stage('Security Scan (Trivy)') {
-            steps {
-                echo "Analyse de sécurité en cours..."
-                sh """
-                    mkdir -p ${REPORT_DIR}
-                    mkdir -p ${TRIVY_CACHE}
+       stage('Security Scan (Trivy)') {
+    steps {
+        echo "Analyse de sécurité en cours (avec timeout prolongé)..."
+        sh """
+            mkdir -p ${REPORT_DIR}
+            mkdir -p ${TRIVY_CACHE}
 
-                    # 1. Génération du rapport JSON brut
-                    docker run --rm \
-                        -u \$(id -u):\$(id -g) \
-                        -v /var/run/docker.sock:/var/run/docker.sock \
-                        -v ${TRIVY_CACHE}:/root/.cache/trivy \
-                        -v ${REPORT_DIR}:/reports \
-                        aquasec/trivy:0.69.3 image \
-                        --exit-code 0 \
-                        --severity CRITICAL,HIGH,MEDIUM,LOW \
-                        --scanners vuln \
-                        --format json \
-                        --output /reports/trivy-raw.json \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
+            # On augmente le timeout à 20 minutes et on cible explicitement le DB-Repository
+            docker run --rm \
+                -u \$(id -u):\$(id -g) \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v ${TRIVY_CACHE}:/root/.cache/trivy \
+                -v ${REPORT_DIR}:/reports \
+                aquasec/trivy:0.69.3 image \
+                --timeout 20m \
+                --db-repository public.ecr.aws/aquasecurity/trivy-db,ghcr.io/aquasecurity/trivy-db \
+                --exit-code 0 \
+                --severity CRITICAL,HIGH,MEDIUM,LOW \
+                --scanners vuln \
+                --format json \
+                --output /reports/trivy-raw.json \
+                ${IMAGE_NAME}:${IMAGE_TAG}
 
-                    # 2. Extraction JQ pour chaque niveau de sévérité
-                    # Note : On utilise l'image jq pour transformer le JSON en CSV
-                    
-                    # Fonction utilitaire simplifiée pour JQ
-                    JQUERY='["PackageName","VulnerabilityID","Severity","InstalledVersion","FixedVersion","Title"],(.Results[]?.Vulnerabilities[]? | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv'
-
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r "\$JQUERY" /reports/trivy-raw.json > ${REPORT_DIR}/resultat.csv
-                    
-                    # Filtres spécifiques par sévérité
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["PackageName","VulnerabilityID","Severity","InstalledVersion","FixedVersion","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_critical.csv
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["PackageName","VulnerabilityID","Severity","InstalledVersion","FixedVersion","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_high.csv
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["PackageName","VulnerabilityID","Severity","InstalledVersion","FixedVersion","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "MEDIUM") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_medium.csv
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["PackageName","VulnerabilityID","Severity","InstalledVersion","FixedVersion","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "LOW") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_low.csv
-
-                    echo "=== Résumé du scan Trivy ==="
-                    echo "CRITICAL : \$(tail -n +2 ${REPORT_DIR}/resultat_critical.csv | wc -l)"
-                    echo "HIGH     : \$(tail -n +2 ${REPORT_DIR}/resultat_high.csv | wc -l)"
-                    echo "MEDIUM   : \$(tail -n +2 ${REPORT_DIR}/resultat_medium.csv | wc -l)"
-                    echo "LOW      : \$(tail -n +2 ${REPORT_DIR}/resultat_low.csv | wc -l)"
-                """
+            # Le reste de tes commandes JQ...
+        """
+    }
+}
             }
             post {
                 always {
