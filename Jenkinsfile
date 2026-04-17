@@ -40,45 +40,52 @@ pipeline {
             }
         }
 
-        stage('Security Scan (Trivy)') {
-            steps {
-                echo "Lancement du scan de sécurité (Sortie: JSON + CSV)..."
-                
-                sh """
-                    # 1. Exécution du scan avec l'option --output correcte
-                    docker run --rm \
-                        -v /var/run/docker.sock:/var/run/docker.sock \
-                        -v ${TRIVY_CACHE}:/root/.cache/trivy \
-                        -v ${WORKSPACE}/${REPORT_DIR}:/reports \
-                        aquasec/trivy:0.69.3 image \
-                        --timeout 90m \
-                        --format json \
-                        --output /reports/trivy-raw.json \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
-                """
+    stage('Security Scan (Trivy)') {
+    steps {
+        echo "Lancement du scan de sécurité (JSON + CSV)..."
 
-                script {
-                    // Vérification de sécurité pour éviter le crash "NoSuchFileException"
-                    if (!fileExists("${REPORT_DIR}/trivy-raw.json")) {
-                        error "ERREUR : Le rapport Trivy n'a pas été généré dans ${REPORT_DIR}."
-                    }
-                }
+        sh """
+            mkdir -p ${WORKSPACE}/${REPORT_DIR}
 
-                sh """
-                    # 2. Transformation du JSON en CSV lisible via JQ
-                    docker run --rm -v ${WORKSPACE}/${REPORT_DIR}:/reports imega/jq -r '
-                        ["Package","ID","Severity","Installed","Fixed"],
-                        (.Results[]?.Vulnerabilities[]? | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, .FixedVersion]) 
-                        | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/vulnerabilites_final.csv
-                """
-            }
-            post {
-                always {
-                    // Archive le CSV pour qu'il soit téléchargeable dans l'interface Jenkins
-                    archiveArtifacts artifacts: "${REPORT_DIR}/*.csv", allowEmptyArchive: true
-                }
+            docker run --rm \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v ${TRIVY_CACHE}:/root/.cache/trivy \
+                -v ${WORKSPACE}/${REPORT_DIR}:/reports \
+                aquasec/trivy:0.69.3 image \
+                --timeout 90m \
+                --format json \
+                --output /reports/trivy-raw.json \
+                ${IMAGE_NAME}:${IMAGE_TAG}
+        """
+
+        script {
+            def reportPath = "${REPORT_DIR}/trivy-raw.json"
+
+            if (!fileExists(reportPath)) {
+                error "❌ ERREUR : Le rapport Trivy n'a pas été généré dans ${reportPath}"
+            } else {
+                echo "✅ Rapport Trivy généré avec succès"
             }
         }
+
+        sh """
+            docker run --rm \
+                -v ${WORKSPACE}/${REPORT_DIR}:/reports \
+                imega/jq -r '
+                    ["Package","VulnerabilityID","Severity","Installed","Fixed"],
+                    (.Results[]?.Vulnerabilities[]? |
+                    [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, .FixedVersion])
+                    | @csv
+                ' /reports/trivy-raw.json > ${WORKSPACE}/${REPORT_DIR}/vulnerabilites_final.csv
+        """
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: "${REPORT_DIR}/*.csv, ${REPORT_DIR}/*.json", allowEmptyArchive: true
+        }
+    }
+}
 
         stage('Docker Login & Push') {
             steps {
