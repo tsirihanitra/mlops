@@ -8,29 +8,28 @@ pipeline {
         IMAGE_NAME     = 'wine-quality'
         IMAGE_TAG      = "${env.BUILD_NUMBER}"
         
-        // Configuration Trivy
+        // Configuration Trivy - CACHE PERSISTANT
         REPORT_DIR     = "${env.WORKSPACE}/trivy-reports"
-        TRIVY_CACHE    = "${env.WORKSPACE}/trivy-cache"
+        // On place le cache en dehors du workspace pour qu'il survive au cleanWs()
+        TRIVY_CACHE    = "/var/lib/jenkins/trivy_shared_cache"
     }
 
     stages {
-        stage('Checkout') {
+        stage('Initialisation') {
             steps {
+                // S'assure que le dossier de cache existe sur l'hôte Jenkins
+                sh "mkdir -p ${TRIVY_CACHE}"
+                sh "mkdir -p ${REPORT_DIR}"
+                
                 git branch: 'main',
                     credentialsId: 'github-credentials',
                     url: 'https://github.com/tsirihanitra/mlops.git'
             }
         }
 
-        stage('Install dependencies') {
+        stage('Installation & Tests') {
             steps {
-                // Installation des libs Python pour les tests locaux
                 sh 'python3 -m pip install --break-system-packages -r requirements.txt'
-            }
-        }
-
-        stage('Test') {
-            steps {
                 sh 'python3 tests/test_predict.py'
             }
         }
@@ -43,76 +42,59 @@ pipeline {
 
         stage('Security Scan (Trivy)') {
             steps {
-                echo "Analyse de sécurité en cours..."
+                echo "Lancement du scan de sécurité..."
+                echo "Note : Le premier téléchargement peut être long (~1h), les suivants seront instantanés."
+                
                 sh """
-                    mkdir -p ${REPORT_DIR}
-                    mkdir -p ${TRIVY_CACHE}
-
-                    # Scan principal : Génération du JSON (Timeout 20m pour éviter les erreurs réseau)
+                    # --timeout 90m : Large marge pour la connexion lente
+                    # --db-repository : GitHub (ghcr.io) est souvent plus stable
                     docker run --rm \
                         -u \$(id -u):\$(id -g) \
                         -v /var/run/docker.sock:/var/run/docker.sock \
                         -v ${TRIVY_CACHE}:/root/.cache/trivy \
                         -v ${REPORT_DIR}:/reports \
                         aquasec/trivy:0.69.3 image \
-                        --timeout 20m \
-                        --db-repository public.ecr.aws/aquasecurity/trivy-db,ghcr.io/aquasecurity/trivy-db \
+                        --timeout 90m \
+                        --db-repository ghcr.io/aquasecurity/trivy-db,public.ecr.aws/aquasecurity/trivy-db \
                         --exit-code 0 \
                         --severity CRITICAL,HIGH,MEDIUM,LOW \
                         --format json \
                         --output /reports/trivy-raw.json \
                         ${IMAGE_NAME}:${IMAGE_TAG}
 
-                    # Extraction JQ : Création des rapports CSV par sévérité
-                    
-                    # Rapport Global
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat.csv
-                    
-                    # Filtre CRITICAL
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_critical.csv
-                    
-                    # Filtre HIGH
-                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_high.csv
-
-                    echo "=== Résumé du scan Trivy ==="
-                    echo "CRITICAL : \$(tail -n +2 ${REPORT_DIR}/resultat_critical.csv | wc -l)"
-                    echo "HIGH     : \$(tail -n +2 ${REPORT_DIR}/resultat_high.csv | wc -l)"
+                    # Conversion du JSON en CSV pour l'archivage avec JQ
+                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/rapport_vulnerabilites.csv
                 """
             }
             post {
                 always {
-                    // Archivage des rapports CSV pour consultation dans Jenkins
+                    // Les rapports CSV apparaissent dans l'interface Jenkins (Build -> Artifacts)
                     archiveArtifacts artifacts: "trivy-reports/*.csv", allowEmptyArchive: true
                 }
             }
         }
 
-        stage('Docker Login') {
+        stage('Docker Login & Push') {
             steps {
-                withCredentials([usernamePassword(credentialsId: 'harbor-credentials', usernameVariable: 'HARBOR_USER', passwordVariable: 'HARBOR_PASS')]) {
-                    sh "echo \"${HARBOR_PASS}\" | docker login ${HARBOR_URL} -u \"${HARBOR_USER}\" --password-stdin"
+                withCredentials([usernamePassword(credentialsId: 'harbor-credentials', usernameVariable: 'U', passwordVariable: 'P')]) {
+                    sh """
+                        echo "${P}" | docker login ${HARBOR_URL} -u "${U}" --password-stdin
+                        
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                        
+                        docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                    """
                 }
             }
         }
 
-        stage('Docker Tag & Push') {
+        stage('Nettoyage Local') {
             steps {
                 sh """
-                docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
-                
-                docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
-                docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
-                """
-            }
-        }
-
-        stage('Clean up') {
-            steps {
-                sh """
-                docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
-                docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
-                docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest || true
+                    docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
+                    docker rmi ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG} || true
                 """
             }
         }
@@ -120,13 +102,12 @@ pipeline {
 
     post {
         success {
-            echo "✅ Pipeline terminé avec succès ! Image poussée sur Harbor."
+            echo "✅ Succès : Image analysée et poussée sur Harbor."
         }
         failure {
-            echo "❌ Le pipeline a échoué. Vérifiez les logs de l'étape en rouge."
+            echo "❌ Échec : Vérifiez les logs du scan ou de la connexion Harbor."
         }
         always {
-            // Nettoyage de l'espace de travail pour libérer de la place
             cleanWs()
         }
     }
