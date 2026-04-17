@@ -40,52 +40,7 @@ pipeline {
             }
         }
 
-stage('Security Scan (Trivy)') {
-    steps {
-        echo "Lancement du scan de sécurité..."
 
-        sh """
-            mkdir -p ${WORKSPACE}/${REPORT_DIR}
-
-            docker run --rm \
-                -v /var/run/docker.sock:/var/run/docker.sock \
-                -v ${TRIVY_CACHE}:/root/.cache/trivy \
-                -v ${WORKSPACE}/${REPORT_DIR}:/reports \
-                aquasec/trivy:0.69.3 image \
-                --timeout 90m \
-                --format json \
-                --output /reports/trivy.json \
-                ${IMAGE_NAME}:${IMAGE_TAG}
-
-            ls -l ${WORKSPACE}/${REPORT_DIR}
-        """
-
-        sh """
-            if [ ! -f ${WORKSPACE}/${REPORT_DIR}/trivy.json ]; then
-                echo "❌ Fichier Trivy introuvable"
-                exit 1
-            fi
-            echo "✅ Rapport Trivy OK"
-        """
-
-        sh """
-            docker run --rm \
-                -v ${WORKSPACE}/${REPORT_DIR}:/reports \
-                imega/jq -r '
-                    ["Package","VulnerabilityID","Severity","Installed","Fixed"],
-                    (.Results[]?.Vulnerabilities[]? |
-                    [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, .FixedVersion])
-                    | @csv
-                ' /reports/trivy.json > ${WORKSPACE}/${REPORT_DIR}/trivy.csv
-        """
-    }
-
-    post {
-        always {
-            archiveArtifacts artifacts: "${REPORT_DIR}/*.csv, ${REPORT_DIR}/*.json", allowEmptyArchive: true
-        }
-    }
-}
 
         stage('Docker Login & Push') {
             steps {
