@@ -2,11 +2,13 @@ pipeline {
     agent any
 
     environment {
+        // Configuration Harbor
         HARBOR_URL     = '192.168.43.53'
         HARBOR_PROJECT = 'mlops'
         IMAGE_NAME     = 'wine-quality'
         IMAGE_TAG      = "${env.BUILD_NUMBER}"
-        // Définition des chemins pour Trivy
+        
+        // Configuration Trivy
         REPORT_DIR     = "${env.WORKSPACE}/trivy-reports"
         TRIVY_CACHE    = "${env.WORKSPACE}/trivy-cache"
     }
@@ -22,6 +24,7 @@ pipeline {
 
         stage('Install dependencies') {
             steps {
+                // Installation des libs Python pour les tests locaux
                 sh 'python3 -m pip install --break-system-packages -r requirements.txt'
             }
         }
@@ -38,36 +41,47 @@ pipeline {
             }
         }
 
-       stage('Security Scan (Trivy)') {
-    steps {
-        echo "Analyse de sécurité en cours (avec timeout prolongé)..."
-        sh """
-            mkdir -p ${REPORT_DIR}
-            mkdir -p ${TRIVY_CACHE}
+        stage('Security Scan (Trivy)') {
+            steps {
+                echo "Analyse de sécurité en cours..."
+                sh """
+                    mkdir -p ${REPORT_DIR}
+                    mkdir -p ${TRIVY_CACHE}
 
-            # On augmente le timeout à 20 minutes et on cible explicitement le DB-Repository
-            docker run --rm \
-                -u \$(id -u):\$(id -g) \
-                -v /var/run/docker.sock:/var/run/docker.sock \
-                -v ${TRIVY_CACHE}:/root/.cache/trivy \
-                -v ${REPORT_DIR}:/reports \
-                aquasec/trivy:0.69.3 image \
-                --timeout 20m \
-                --db-repository public.ecr.aws/aquasecurity/trivy-db,ghcr.io/aquasecurity/trivy-db \
-                --exit-code 0 \
-                --severity CRITICAL,HIGH,MEDIUM,LOW \
-                --scanners vuln \
-                --format json \
-                --output /reports/trivy-raw.json \
-                ${IMAGE_NAME}:${IMAGE_TAG}
+                    # Scan principal : Génération du JSON (Timeout 20m pour éviter les erreurs réseau)
+                    docker run --rm \
+                        -u \$(id -u):\$(id -g) \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v ${TRIVY_CACHE}:/root/.cache/trivy \
+                        -v ${REPORT_DIR}:/reports \
+                        aquasec/trivy:0.69.3 image \
+                        --timeout 20m \
+                        --db-repository public.ecr.aws/aquasecurity/trivy-db,ghcr.io/aquasecurity/trivy-db \
+                        --exit-code 0 \
+                        --severity CRITICAL,HIGH,MEDIUM,LOW \
+                        --format json \
+                        --output /reports/trivy-raw.json \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
 
-            # Le reste de tes commandes JQ...
-        """
-    }
-}
+                    # Extraction JQ : Création des rapports CSV par sévérité
+                    
+                    # Rapport Global
+                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat.csv
+                    
+                    # Filtre CRITICAL
+                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_critical.csv
+                    
+                    # Filtre HIGH
+                    docker run --rm -v ${REPORT_DIR}:/reports imega/jq -r '["Package","ID","Severity","Installed","Fixed","Title"],(.Results[]?.Vulnerabilities[]? | select(.Severity == "HIGH") | [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, (.FixedVersion // ""), (.Title // "" | gsub(","; " "))]) | @csv' /reports/trivy-raw.json > ${REPORT_DIR}/resultat_high.csv
+
+                    echo "=== Résumé du scan Trivy ==="
+                    echo "CRITICAL : \$(tail -n +2 ${REPORT_DIR}/resultat_critical.csv | wc -l)"
+                    echo "HIGH     : \$(tail -n +2 ${REPORT_DIR}/resultat_high.csv | wc -l)"
+                """
             }
             post {
                 always {
+                    // Archivage des rapports CSV pour consultation dans Jenkins
                     archiveArtifacts artifacts: "trivy-reports/*.csv", allowEmptyArchive: true
                 }
             }
@@ -86,6 +100,7 @@ pipeline {
                 sh """
                 docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
                 docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
+                
                 docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}
                 docker push ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:latest
                 """
@@ -104,8 +119,15 @@ pipeline {
     }
 
     post {
-        success { echo "✅ Image publiée : ${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_TAG}" }
-        failure { echo "❌ Pipeline échoué ! Vérifiez les logs." }
-        always { cleanWs() }
+        success {
+            echo "✅ Pipeline terminé avec succès ! Image poussée sur Harbor."
+        }
+        failure {
+            echo "❌ Le pipeline a échoué. Vérifiez les logs de l'étape en rouge."
+        }
+        always {
+            // Nettoyage de l'espace de travail pour libérer de la place
+            cleanWs()
+        }
     }
 }
