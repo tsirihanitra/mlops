@@ -40,9 +40,9 @@ pipeline {
             }
         }
 
-    stage('Security Scan (Trivy)') {
+stage('Security Scan (Trivy)') {
     steps {
-        echo "Lancement du scan de sécurité (JSON + CSV)..."
+        echo "Lancement du scan de sécurité (CSV uniquement)..."
 
         sh """
             mkdir -p ${WORKSPACE}/${REPORT_DIR}
@@ -54,17 +54,13 @@ pipeline {
                 aquasec/trivy:0.69.3 image \
                 --timeout 90m \
                 --format json \
-                --output /reports/trivy-raw.json \
+                --output /reports/trivy.json \
                 ${IMAGE_NAME}:${IMAGE_TAG}
         """
 
         script {
-            def reportPath = "${REPORT_DIR}/trivy-raw.json"
-
-            if (!fileExists(reportPath)) {
-                error "❌ ERREUR : Le rapport Trivy n'a pas été généré dans ${reportPath}"
-            } else {
-                echo "✅ Rapport Trivy généré avec succès"
+            if (!fileExists("${REPORT_DIR}/trivy.json")) {
+                error "❌ Rapport Trivy introuvable"
             }
         }
 
@@ -76,13 +72,13 @@ pipeline {
                     (.Results[]?.Vulnerabilities[]? |
                     [.PkgName, .VulnerabilityID, .Severity, .InstalledVersion, .FixedVersion])
                     | @csv
-                ' /reports/trivy-raw.json > ${WORKSPACE}/${REPORT_DIR}/vulnerabilites_final.csv
+                ' /reports/trivy.json > ${WORKSPACE}/${REPORT_DIR}/trivy.csv
         """
     }
 
     post {
         always {
-            archiveArtifacts artifacts: "${REPORT_DIR}/*.csv, ${REPORT_DIR}/*.json", allowEmptyArchive: true
+            archiveArtifacts artifacts: "${REPORT_DIR}/*.csv, ${REPORT_DIR}/*.json"
         }
     }
 }
