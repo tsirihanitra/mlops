@@ -56,18 +56,12 @@ pipeline {
             }
         }
 
-        stage('Publish Trivy Report') {
-            steps {
-                publishHTML([
-                    allowMissing: false,
-                    alwaysLinkToLastBuild: true,
-                    keepAll: true,
-                    reportDir: '.',
-                    reportFiles: 'trivy-report.html',
-                    reportName: 'Trivy Security Report'
-                ])
-            }
-        }
+     
+stage('Publish Trivy Report') {
+    steps {
+        archiveArtifacts artifacts: 'trivy-report.html', fingerprint: true
+    }
+}
 
         stage('Docker Login') {
             steps {
