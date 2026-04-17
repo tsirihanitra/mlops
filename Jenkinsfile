@@ -42,7 +42,7 @@ pipeline {
 
 stage('Security Scan (Trivy)') {
     steps {
-        echo "Lancement du scan de sécurité (CSV uniquement)..."
+        echo "Lancement du scan de sécurité..."
 
         sh """
             mkdir -p ${WORKSPACE}/${REPORT_DIR}
@@ -56,13 +56,17 @@ stage('Security Scan (Trivy)') {
                 --format json \
                 --output /reports/trivy.json \
                 ${IMAGE_NAME}:${IMAGE_TAG}
+
+            ls -l ${WORKSPACE}/${REPORT_DIR}
         """
 
-        script {
-            if (!fileExists("${REPORT_DIR}/trivy.json")) {
-                error "❌ Rapport Trivy introuvable"
-            }
-        }
+        sh """
+            if [ ! -f ${WORKSPACE}/${REPORT_DIR}/trivy.json ]; then
+                echo "❌ Fichier Trivy introuvable"
+                exit 1
+            fi
+            echo "✅ Rapport Trivy OK"
+        """
 
         sh """
             docker run --rm \
@@ -78,7 +82,7 @@ stage('Security Scan (Trivy)') {
 
     post {
         always {
-            archiveArtifacts artifacts: "${REPORT_DIR}/*.csv, ${REPORT_DIR}/*.json"
+            archiveArtifacts artifacts: "${REPORT_DIR}/*.csv, ${REPORT_DIR}/*.json", allowEmptyArchive: true
         }
     }
 }
