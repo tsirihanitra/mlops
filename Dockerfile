@@ -10,4 +10,6 @@ COPY data/ ./data/
 
 RUN python src/train.py
 
+EXPOSE 5000
+
 CMD ["python", "src/predict.py"]
