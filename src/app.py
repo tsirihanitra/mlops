@@ -17,6 +17,16 @@ COLONNES = [
 rf     = joblib.load(MODEL_PATH)
 scaler = joblib.load(SCALER_PATH)
 
+@app.route('/', methods=['GET'])
+def index():
+    return jsonify({
+        "message": "Bienvenue sur l'API de prédiction de qualité du vin !",
+        'endpoints': {
+            "/health": "Vérifier l'état de l'API",
+            "/predict": "Faire une prédiction (POST)"
+        }
+    })
+
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok', 'model': 'wine-quality'})

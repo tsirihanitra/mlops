@@ -29,12 +29,12 @@ with DAG(
 
     build = BashOperator(
         task_id='docker_build',
-        bash_command='docker build -t 192.168.43.53/mlops/wine-quality:latest /opt/airflow',
+        bash_command='docker build -t mirahasina/wine-quality:latest /opt/airflow',
     )
 
     push = BashOperator(
         task_id='docker_push',
-        bash_command='docker push 192.168.43.53/mlops/wine-quality:latest',
+        bash_command='docker push mirahasina/wine-quality:latest',
     )
 
     train >> test >> build >> push
