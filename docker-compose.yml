@@ -2,9 +2,6 @@ version: "3.8"
 
 services:
 
-  # ================================
-  # VOTRE APP ML (prediction vin)
-  # ================================
   app:
     build: .
     image: mirahasina/wine-quality:latest
@@ -22,9 +19,6 @@ services:
     networks:
       - mlops-network
 
-  # ================================
-  # AIRFLOW - Orchestration ML
-  # ================================
   postgres:
     image: postgres:15
     container_name: airflow-postgres
@@ -40,6 +34,7 @@ services:
 
   airflow-webserver:
     image: apache/airflow:2.8.1
+    user: "50000:999"
     container_name: airflow-webserver
     depends_on:
       - postgres
@@ -47,7 +42,7 @@ services:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
-      - AIRFLOW__WEBSERVER__SECRET_KEY=mlops-secret-key
+      - AIRFLOW__WEBSERVER__SECRET_KEY=mlops-secret-key-2026
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -62,6 +57,7 @@ services:
 
   airflow-scheduler:
     image: apache/airflow:2.8.1
+    user: "50000:999"
     container_name: airflow-scheduler
     depends_on:
       - postgres
@@ -70,6 +66,7 @@ services:
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__LOAD_EXAMPLES=false
+      - AIRFLOW__WEBSERVER__SECRET_KEY=mlops-secret-key-2026
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -82,20 +79,27 @@ services:
 
   airflow-init:
     image: apache/airflow:2.8.1
+    user: "50000:999"
     container_name: airflow-init
     depends_on:
       - postgres
     environment:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__WEBSERVER__SECRET_KEY=mlops-secret-key-2026
     command: >
       bash -c "airflow db init &&
-               airflow users create --username admin --password admin --firstname Admin --lastname MLOps --role Admin --email admin@mlops.com
-               --username admin
-               --password admin
-               --firstname Admin
-               --lastname MLOps
-               --role Admin
-               --email admin@mlops.com"
+               airflow users create --username admin --password admin --firstname Admin --lastname MLOps --role Admin --email admin@mlops.com"
+    networks:
+      - mlops-network
+
+  streamlit-ui:
+    image: mirahasina/wine-quality:latest
+    container_name: wine-streamlit-ui
+    volumes:
+      - ./src:/app/src
+    ports:
+      - "8501:8501"
+    command: bash -c "pip install --default-timeout=1000 streamlit==1.32.0 requests==2.31.0 && streamlit run src/ui.py --server.address 0.0.0.0"
     networks:
       - mlops-network
 

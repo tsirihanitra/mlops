@@ -1,11 +1,12 @@
 import os
 from airflow import DAG
+# pyrefly: ignore [missing-import]
 from airflow.operators.python import PythonOperator
 from datetime import datetime
 import subprocess
 import logging
 
-PROJECT_ROOT = '/home/mirahasina/L3_INSI/DevOps_MLOps/mlops'
+PROJECT_ROOT = '/opt/airflow'
 
 def run_script(script_path):
     logging.info(f"Running script: {script_path}")

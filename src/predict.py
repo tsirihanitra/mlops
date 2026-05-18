@@ -29,7 +29,6 @@ def predict(data: list):
     return ["Bon" if p == 1 else "Mauvais" for p in preds]
 
 if __name__ == '__main__':
-    # Exemple d'echantillons pour test
     echantillons = [
         [11.2, 0.28, 0.56, 1.9, 0.075, 17, 60, 0.9980, 3.16, 0.58, 9.8],
         [7.8,  0.88, 0.00, 2.6, 0.098, 25, 67, 0.9968, 3.20, 0.68, 9.8]
