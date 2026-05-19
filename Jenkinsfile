@@ -25,9 +25,10 @@ pipeline {
                 sh """
                     docker run --rm \\
                         -v \$(pwd):/app \\
+                        -v /var/jenkins_home/.cache/pip:/root/.cache/pip \\
                         -w /app \\
                         python:3.10-slim \\
-                        bash -c "pip install -q -r requirements.txt && python tests/test_predict.py"
+                        bash -c "pip install --timeout=1000 -q -r requirements.txt && python tests/test_predict.py"
                 """
             }
         }

@@ -97,6 +97,8 @@ services:
     container_name: wine-streamlit-ui
     volumes:
       - ./src:/app/src
+    environment:
+      - API_URL=http://wine-prediction-app:5000/predict
     ports:
       - "8501:8501"
     command: bash -c "pip install --default-timeout=1000 streamlit==1.32.0 requests==2.31.0 && streamlit run src/ui.py --server.address 0.0.0.0"

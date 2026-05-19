@@ -7,7 +7,9 @@ st.set_page_config(page_title="Prédiction Qualité du Vin", page_icon="🍷", l
 st.title("🍷 Prédicteur de Qualité du Vin (MLOps)")
 st.markdown("Cette interface interroge votre API de Machine Learning Flask en temps réel.")
 
-API_URL = "http://app:5000/predict"
+import os
+
+API_URL = os.getenv("API_URL", "http://localhost:5000/predict")
 
 with st.sidebar:
     st.header("Paramètres du Vin")
@@ -30,10 +32,10 @@ data = [[
 ]]
 st.write(data)
 
-if st.button("🔮 Prédire la Qualité", type="primary"):
+if st.button(" Prédire la Qualité", type="primary"):
     with st.spinner("Interrogation du modèle en cours..."):
         try:
-            response = requests.post("http://wine-prediction-app:5000/predict", json={"data": data})
+            response = requests.post(API_URL, json={"data": data})
             
             if response.status_code == 200:
                 resultat = response.json().get("predictions", ["Erreur"])[0]
@@ -45,4 +47,4 @@ if st.button("🔮 Prédire la Qualité", type="primary"):
                 st.warning(f"Erreur de l'API (Status {response.status_code}): {response.text}")
                 
         except requests.exceptions.ConnectionError:
-            st.error("❌ Impossible de contacter l'API Flask. Vérifiez que le conteneur 'wine-prediction-app' est bien démarré.")
+            st.error(" Impossible de contacter l'API Flask. Vérifiez que le conteneur 'wine-prediction-app' est bien démarré.")
